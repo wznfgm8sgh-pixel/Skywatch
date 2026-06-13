@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Northeast Skywatch — Live ADS-B</title>
+
+<!-- ============================================================= -->
+<!--  Map library (Leaflet) — loaded from CDN                       -->
+<!-- ============================================================= -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+
+<!-- ============================================================= -->
+<!--  Typefaces                                                     -->
+<!--  Saira Condensed  : masthead / signage (aerospace character)   -->
+<!--  IBM Plex Sans    : interface + body                           -->
+<!--  IBM Plex Mono    : flight-strip data (the strips ARE mono)    -->
+<!-- ============================================================= -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ===============================================================
+   PALETTE — "North Sea Approach"
+   A dim controller's ops room (deep slate-navy), illuminated by
+   runway-amber, with the flight strips themselves on buff paper.
+   =============================================================== */
+:root{
+  --ink-bg:      #0D1620;   /* ops room, dim                       */
+  --ink-panel:   #14202B;   /* lifted panel                        */
+  --ink-panel-2: #1A2935;   /* control surfaces                    */
+  --line:        #294152;   /* hairlines                           */
+  --line-soft:   #1E2F3C;
+
+  --amber:       #F4A23B;   /* primary accent / OTNE nod           */
+  --amber-bright:#FFBC63;
+  --amber-deep:  #C97C1E;
+
+  --txt:         #E7EEF3;   /* primary text                        */
+  --txt-dim:     #8DA0AD;   /* labels                              */
+  --txt-faint:   #5C7180;
+
+  --mint:        #74D7A0;   /* climb / live / overhead (sparing)   */
+  --sky:         #6FB7E8;   /* descent                             */
+  --mil:         #E37A5E;   /* military traffic                    */
+
+  --strip-paper: #E8DEC8;   /* ATC progress strip — buff           */
+  --strip-paper2:#DED2B6;   /* alternating strip                   */
+  --strip-ink:   #2A2417;   /* strip text                          */
+  --strip-rule:  #BCAE8C;   /* divisions between strip cells       */
+
+  --r: 3px;                 /* aviation kit isn't rounded — keep tight */
+}
+
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; }
+body{
+  background:var(--ink-bg);
+  color:var(--txt);
+  font-family:"IBM Plex Sans", system-ui, sans-serif;
+  font-size:15px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+
+/* ---------------------------------------------------------------
+   MASTHEAD — the amber band (OTNE homage), executed cleanly,
+   sitting over the dark ops body. Beneath it: a runway-centreline
+   motif (dashes) standing in as the page's dividing rule.
+   --------------------------------------------------------------- */
+.masthead{
+  background:var(--amber);
+  color:#231405;
+  padding:14px clamp(14px,4vw,34px);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  flex-wrap:wrap;
+}
+.brand{ display:flex; align-items:baseline; gap:12px; min-width:0; }
+.brand h1{
+  font-family:"Saira Condensed", sans-serif;
+  font-weight:700;
+  font-size:clamp(26px,4.4vw,40px);
+  letter-spacing:0.06em;
+  text-transform:uppercase;
+  margin:0;
+  line-height:0.92;
+  white-space:nowrap;
+}
+.brand .tag{
+  font-family:"IBM Plex Mono", monospace;
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:0.14em;
+  text-transform:uppercase;
+  color:#5A3A0E;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.mast-right{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  font-family:"IBM Plex Mono", monospace;
+}
+.conn{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-weight:700;
+  font-size:12px;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  padding:5px 10px;
+  border-radius:var(--r);
+  background:#231405;
+  color:var(--amber-bright);
+}
+.conn .dot{ width:8px; height:8px; border-radius:50%; background:var(--amber-bright); }
+.conn.live{ color:var(--mint); }
+.conn.live .dot{ background:var(--mint); animation:pulse 2s ease-in-out infinite; }
+.conn.demo .dot{ background:#F0C268; }
+.clock{ text-align:right; line-height:1.15; }
+.clock .z{ font-size:20px; font-weight:600; letter-spacing:0.04em; color:#231405; }
+.clock .loc{ font-size:10.5px; letter-spacing:0.08em; color:#5A3A0E; }
+
+.centreline{
+  height:8px;
+  background:repeating-linear-gradient(90deg,
+    var(--amber) 0 26px, transparent 26px 46px);
+  opacity:0.85;
+}
+
+/* ---------------------------------------------------------------
+   STATUS STRIP — a thin ATC info line (think a METAR ticker),
+   NOT a row of hero stat-cards.
+   --------------------------------------------------------------- */
+.statusbar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:0;
+  background:var(--ink-panel);
+  border-bottom:1px solid var(--line-soft);
+  font-family:"IBM Plex Mono", monospace;
+  padding:0 clamp(8px,2vw,18px);
+}
+.stat{
+  padding:9px 18px 9px 0;
+  margin-right:18px;
+  border-right:1px solid var(--line-soft);
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+}
+.stat:last-child{ border-right:0; }
+.stat .k{ font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--txt-dim); }
+.stat .v{ font-size:16px; font-weight:600; color:var(--txt); }
+.stat .v.amber{ color:var(--amber); }
+.stat .v.mil{ color:var(--mil); }
+.stat .v.mint{ color:var(--mint); }
+.stat .u{ font-size:10px; color:var(--txt-faint); }
+/* Fixed-width slots for live values: the bar must never reflow
+   as numbers tick over (stops layout shift every second). */
+#sTrack,#sPos{ min-width:3ch; }
+#sMil{ min-width:2ch; }
+#sRange{ min-width:4ch; text-align:right; }
+#sMsgs{ min-width:4ch; }
+#sAge{ min-width:8ch; }
+
+/* ---------------------------------------------------------------
+   DECK — map on the left, the strip board on the right.
+   --------------------------------------------------------------- */
+.deck{
+  display:grid;
+  grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+  gap:0;
+  min-height:calc(100vh - 132px);
+}
+@media (max-width:920px){
+  .deck{ grid-template-columns:1fr; }
+}
+
+/* --- MAP ------------------------------------------------------- */
+.mapwrap{ position:relative; border-right:1px solid var(--line-soft); min-height:340px; }
+@media (max-width:920px){ .mapwrap{ border-right:0; border-bottom:1px solid var(--line-soft); height:46vh; } }
+#map{ position:absolute; inset:0; background:#0a121a; }
+.leaflet-container{ background:#0a121a; font-family:"IBM Plex Mono", monospace; }
+
+.legend{
+  position:absolute;
+  left:12px; bottom:12px;
+  z-index:500;
+  background:rgba(13,22,32,0.86);
+  border:1px solid var(--line);
+  border-radius:var(--r);
+  padding:9px 11px;
+  font-family:"IBM Plex Mono", monospace;
+  font-size:10.5px;
+  letter-spacing:0.04em;
+  color:var(--txt-dim);
+  backdrop-filter:blur(3px);
+  max-width:200px;
+}
+.legend b{ color:var(--txt); font-weight:600; display:block; margin-bottom:5px; letter-spacing:0.1em; text-transform:uppercase; font-size:9.5px; }
+.legend .row{ display:flex; align-items:center; gap:7px; margin:2px 0; }
+.legend .sw{ width:11px; height:11px; flex:0 0 auto; }
+.legend .ring{ width:11px; height:11px; border:1px solid var(--amber); border-radius:50%; background:transparent; }
+
+/* aircraft markers (divIcon) */
+.ac-rot{ display:block; transform-origin:50% 50%; transition:transform .6s ease; will-change:transform; }
+.ac-glyph path{ fill:var(--amber); stroke:#1a1207; stroke-width:1; }
+.ac.mil .ac-glyph path{ fill:var(--mil); }
+.ac.sel .ac-glyph path{ fill:#fff; stroke:var(--amber); stroke-width:1.4; }
+.ac-tag{
+  position:absolute; left:16px; top:-3px;
+  font-family:"IBM Plex Mono", monospace; font-size:10px; font-weight:600;
+  white-space:nowrap; color:var(--amber-bright);
+  text-shadow:0 0 4px #000, 0 0 4px #000;
+  pointer-events:none;
+}
+.ac.mil .ac-tag{ color:var(--mil); }
+.ac.sel .ac-tag{ color:#fff; }
+
+.leaflet-popup-content-wrapper{ background:var(--ink-panel-2); color:var(--txt); border:1px solid var(--line); border-radius:var(--r); }
+.leaflet-popup-tip{ background:var(--ink-panel-2); border:1px solid var(--line); }
+.leaflet-popup-content{ margin:9px 12px; font-family:"IBM Plex Mono", monospace; font-size:12px; }
+.leaflet-popup-content b{ color:var(--amber); }
+
+/* --- STRIP BOARD --------------------------------------------- */
+.board{ display:flex; flex-direction:column; min-height:0; background:var(--ink-panel); }
+.board-head{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:11px clamp(10px,2vw,16px);
+  border-bottom:1px solid var(--line-soft);
+}
+.board-head h2{
+  font-family:"Saira Condensed", sans-serif;
+  font-weight:600; font-size:18px; letter-spacing:0.1em; text-transform:uppercase;
+  margin:0; color:var(--txt); flex:1 1 auto;
+}
+.board-head h2 small{ color:var(--txt-faint); font-weight:500; letter-spacing:0.08em; }
+.sortgroup{ display:flex; gap:0; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
+.sortgroup button{
+  background:var(--ink-panel-2); color:var(--txt-dim);
+  border:0; border-right:1px solid var(--line);
+  font-family:"IBM Plex Mono", monospace; font-size:10.5px; font-weight:600;
+  letter-spacing:0.08em; text-transform:uppercase;
+  padding:6px 11px; cursor:pointer;
+}
+.sortgroup button:last-child{ border-right:0; }
+.sortgroup button[aria-pressed="true"]{ background:var(--amber); color:#231405; }
+.iconbtn{
+  background:var(--ink-panel-2); color:var(--txt-dim);
+  border:1px solid var(--line); border-radius:var(--r);
+  width:32px; height:30px; cursor:pointer; font-size:15px; line-height:1;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.iconbtn:hover{ color:var(--amber); border-color:var(--amber-deep); }
+
+.striplist{ overflow-y:auto; padding:10px clamp(10px,2vw,14px) 18px; flex:1 1 auto; }
+@media (max-width:920px){ .striplist{ max-height:none; } }
+
+/* THE FLIGHT PROGRESS STRIP — the signature element.
+   Buff paper, ink text, divided into boxed fields, with a
+   colour-coded tab (civ amber / mil terracotta). */
+.strip{
+  display:grid;
+  grid-template-columns:14px 1.5fr 0.95fr 0.7fr 0.9fr 0.9fr 0.65fr 0.65fr;
+  align-items:stretch;
+  background:var(--strip-paper);
+  color:var(--strip-ink);
+  border:1px solid #00000022;
+  border-radius:2px;
+  margin-bottom:6px;
+  font-family:"IBM Plex Mono", monospace;
+  box-shadow:0 1px 0 #00000033, 0 2px 5px #0000002e;
+  cursor:pointer;
+  overflow:hidden;
+  text-align:left;
+  width:100%;
+  position:relative;
+}
+.strip:nth-child(even){ background:var(--strip-paper2); }
+.strip.is-selected{ outline:2px solid var(--amber); outline-offset:1px; box-shadow:0 0 0 1px var(--amber), 0 3px 9px #00000055; }
+.strip:focus-visible{ outline:2px solid var(--amber-bright); outline-offset:2px; }
+.strip .tab{ background:var(--amber); grid-row:1 / span 2; }
+.strip.mil .tab{ background:var(--mil); }
+/* Range/bearing: a deliberate full-width annotation line on row two */
+.strip .cell.c-rng{
+  grid-column:2 / -1;
+  flex-direction:row; align-items:baseline; gap:9px;
+  border-left:0; border-top:1px solid var(--strip-rule);
+  padding:4px 8px 5px;
+}
+.c-rng .lab{ margin-bottom:0; }
+.strip .cell{
+  padding:6px 8px;
+  border-left:1px solid var(--strip-rule);
+  min-width:0;
+  display:flex; flex-direction:column; justify-content:center;
+}
+.strip .cell:first-of-type{ border-left:0; }
+.cell .lab{ font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:#7a6f52; margin-bottom:1px; }
+.cell .big{ font-size:15px; font-weight:700; line-height:1.05; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cell .sub{ font-size:10.5px; line-height:1.05; color:#5d5440; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cell .val{ font-size:14px; font-weight:600; line-height:1.05; white-space:nowrap; overflow:hidden; }
+.vs.up{ color:#1f7a44; }
+.vs.dn{ color:#1e5f8a; }
+.vs.lv{ color:#6b6044; }
+.milbadge{
+  display:inline-block; font-size:8px; font-weight:700; letter-spacing:0.1em;
+  background:var(--mil); color:#2a0f06; padding:1px 4px; border-radius:2px; margin-top:2px;
+}
+.ovhd{
+  position:absolute; right:6px; top:5px;
+  font-size:8px; font-weight:700; letter-spacing:0.08em;
+  background:#1f7a44; color:#eafff2; padding:2px 5px; border-radius:2px;
+}
+
+.strip.is-new{ animation:dealin .5s ease both; }
+@keyframes dealin{ from{ opacity:0; transform:translateY(-7px); } to{ opacity:1; transform:none; } }
+
+/* compact strip on narrow screens: drop the secondary fields */
+@media (max-width:560px){
+  .strip{ grid-template-columns:14px 1.5fr 0.9fr 0.9fr 0.9fr; }
+  .cell.c-sq, .cell.c-gs, .cell.c-trk{ display:none; }
+}
+
+.empty{ text-align:center; padding:46px 16px; color:var(--txt-faint); font-family:"IBM Plex Mono", monospace; font-size:13px; }
+.empty .big{ font-size:15px; color:var(--txt-dim); margin-bottom:6px; letter-spacing:0.06em; }
+
+@keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:0.35; } }
+
+/* ---------------------------------------------------------------
+   SETTINGS + ABOUT (footer)
+   --------------------------------------------------------------- */
+footer{ border-top:1px solid var(--line-soft); background:var(--ink-bg); }
+.footwrap{
+  max-width:1100px; margin:0 auto; padding:22px clamp(14px,4vw,30px) 34px;
+  display:grid; grid-template-columns:1.3fr 1fr; gap:30px;
+}
+@media (max-width:760px){ .footwrap{ grid-template-columns:1fr; gap:24px; } }
+footer h3{
+  font-family:"Saira Condensed", sans-serif; font-weight:600;
+  font-size:15px; letter-spacing:0.12em; text-transform:uppercase;
+  color:var(--amber); margin:0 0 9px;
+}
+footer p{ color:var(--txt-dim); font-size:13px; margin:0 0 9px; max-width:52ch; }
+footer .meta{ font-family:"IBM Plex Mono", monospace; font-size:11px; color:var(--txt-faint); letter-spacing:0.03em; }
+
+.settings .field{ margin-bottom:11px; }
+.settings label{ display:block; font-family:"IBM Plex Mono", monospace; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--txt-dim); margin-bottom:4px; }
+.settings input, .settings select{
+  width:100%; background:var(--ink-panel-2); color:var(--txt);
+  border:1px solid var(--line); border-radius:var(--r);
+  font-family:"IBM Plex Mono", monospace; font-size:12.5px;
+  padding:7px 9px;
+}
+.settings input:focus, .settings select:focus{ outline:none; border-color:var(--amber); }
+.settings .latlon{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.btnrow{ display:flex; gap:8px; margin-top:4px; flex-wrap:wrap; }
+.btn{
+  font-family:"IBM Plex Mono", monospace; font-size:11px; font-weight:600;
+  letter-spacing:0.08em; text-transform:uppercase;
+  padding:8px 14px; border-radius:var(--r); cursor:pointer; border:1px solid var(--line);
+  background:var(--ink-panel-2); color:var(--txt);
+}
+.btn.primary{ background:var(--amber); color:#231405; border-color:var(--amber); }
+.btn.primary:hover{ background:var(--amber-bright); }
+.btn:hover{ border-color:var(--amber-deep); }
+.note{ font-family:"IBM Plex Mono", monospace; font-size:10.5px; color:var(--txt-faint); margin-top:8px; line-height:1.5; }
+
+@media (prefers-reduced-motion:reduce){
+  *{ animation:none !important; transition:none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <h1 id="siteName">Northeast Skywatch</h1>
+    <span class="tag" id="siteTag">Live ADS-B · Tyne coast</span>
+  </div>
+  <div class="mast-right">
+    <span class="conn demo" id="conn"><span class="dot"></span><span id="connText">Connecting…</span></span>
+    <div class="clock">
+      <div class="z" id="clockZ">--:--:--Z</div>
+      <div class="loc" id="clockLoc">local --:--</div>
+    </div>
+  </div>
+</header>
+<div class="centreline" aria-hidden="true"></div>
+
+<div class="statusbar" id="statusbar">
+  <div class="stat"><span class="k">Tracking</span><span class="v amber" id="sTrack">0</span></div>
+  <div class="stat"><span class="k">With&nbsp;position</span><span class="v" id="sPos">0</span></div>
+  <div class="stat"><span class="k">Military</span><span class="v mil" id="sMil">0</span></div>
+  <div class="stat"><span class="k">Max&nbsp;range</span><span class="v" id="sRange">—</span><span class="u">nm</span></div>
+  <div class="stat"><span class="k">Msgs/sec</span><span class="v" id="sMsgs">—</span></div>
+  <div class="stat"><span class="k">Updated</span><span class="v" id="sAge" style="font-size:13px">—</span></div>
+</div>
+
+<main class="deck">
+  <section class="mapwrap" aria-label="Live map of tracked aircraft">
+    <div id="map"></div>
+    <div class="legend">
+      <b>Reception</b>
+      <div class="row"><span class="ring"></span> Range rings 25 / 100 / 200 nm</div>
+      <div class="row"><span class="sw" style="background:var(--amber)"></span> Civil traffic</div>
+      <div class="row"><span class="sw" style="background:var(--mil)"></span> Military (heuristic)</div>
+    </div>
+  </section>
+
+  <section class="board" aria-label="Flight strips">
+    <div class="board-head">
+      <h2>Strips <small id="boardCount"></small></h2>
+      <div class="sortgroup" role="group" aria-label="Sort strips">
+        <button data-sort="range" aria-pressed="true">Range</button>
+        <button data-sort="alt" aria-pressed="false">Alt</button>
+        <button data-sort="callsign" aria-pressed="false">A–Z</button>
+      </div>
+      <button class="iconbtn" id="refreshBtn" title="Refresh now" aria-label="Refresh now">⟳</button>
+    </div>
+    <div class="striplist" id="striplist"></div>
+  </section>
+</main>
+
+<footer>
+  <div class="footwrap">
+    <div>
+      <h3>About this receiver</h3>
+      <p id="aboutText">A single ground station on the North-East coast of England feeding the global aggregators. The core zone is a 25 nm radius, though reception regularly reaches far beyond it — out across the North Sea and well down-country on a clear day. Civil and military are shown alike.</p>
+      <p class="meta" id="aboutMeta">Receiver · — , — &nbsp;|&nbsp; Feed: aircraft.json &nbsp;|&nbsp; Contributor to FlightRadar24</p>
+      <p class="meta" id="feedDiag">Feed check: waiting for first cycle…</p>
+      <p class="note">Aircraft positions, levels and codes are decoded live from Mode-S / ADS-B transponder broadcasts. Military classification is a best-effort guess from ICAO address and callsign and will not catch everything. For interest only — not for operational use.</p>
+    </div>
+    <div class="settings">
+      <h3>Connect your feed</h3>
+      <div class="field">
+        <label for="urlInput">aircraft.json URL</label>
+        <input id="urlInput" type="text" spellcheck="false" placeholder="/data/aircraft.json">
+      </div>
+      <div class="field">
+        <label>Receiver location (lat, lon)</label>
+        <div class="latlon">
+          <input id="latInput" type="text" spellcheck="false" placeholder="54.999">
+          <input id="lonInput" type="text" spellcheck="false" placeholder="-1.438">
+        </div>
+      </div>
+      <div class="field">
+        <label for="refSel">Refresh interval</label>
+        <select id="refSel">
+          <option value="2">Every 2 s</option>
+          <option value="5" selected>Every 5 s</option>
+          <option value="10">Every 10 s</option>
+          <option value="15">Every 15 s</option>
+        </select>
+      </div>
+      <div class="btnrow">
+        <button class="btn primary" id="applyBtn">Connect</button>
+        <button class="btn" id="demoBtn">Demo traffic</button>
+      </div>
+      <p class="note">Serve this file from the same machine as your receiver (e.g. alongside tar1090 / SkyAware) so it can read the feed same-origin. Settings here apply for this session; for a permanent setup, edit the <b>CONFIG</b> block at the top of the script.</p>
+    </div>
+  </div>
+</footer>
+
+<!-- Map library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script>
+/* =================================================================
+   CONFIG  —  edit this block once for a permanent installation.
+   ================================================================= */
+// Values injected by the bridge from environment variables (container
+// setup). Falls back to the defaults below when opened directly.
+const ENV = (typeof window !== "undefined" && window.__SKYWATCH_ENV__) || {};
+
+const CONFIG = {
+  siteName: ENV.siteName || "Northeast Skywatch",
+  tagline:  ENV.tagline  || "Live ADS-B · Tyne coast",
+
+  // Your decoder's aircraft.json. The page also probes the common
+  // paths below, so leave this as-is if you're unsure.
+  dataUrl: ENV.dataUrl || "/data/aircraft.json",
+
+  // Candidate feed locations, tried in order if dataUrl fails.
+  probe: [
+    "/data/aircraft.json",
+    "/tar1090/data/aircraft.json",
+    "/skyaware/data/aircraft.json",
+    "/dump1090-fa/data/aircraft.json",
+    "/dump1090/data/aircraft.json"
+  ],
+
+  // Receiver position — set this to YOUR antenna. Default is an
+  // approximate South Shields location; change it to your own.
+  receiver: {
+    lat:  (ENV.lat != null) ? ENV.lat : 54.999,
+    lon:  (ENV.lon != null) ? ENV.lon : -1.438,
+    name: ENV.receiverName || "South Shields"
+  },
+
+  refreshSeconds: 5,
+
+  // Range rings in nautical miles.
+  rings: [25, 100, 200],
+
+  // Military heuristics (approximate — won't catch everything).
+  milHexPrefix: ["43c", "ae", "adf", "33f", "3f"],
+  milCallPrefix: ["RRR", "RCH", "CFC", "NAF", "RFR", "ASCOT", "TARTAN", "VIVID", "EGYPT", "BLKCAT", "NATO"]
+};
+
+/* =================================================================
+   STATE
+   ================================================================= */
+let state = {
+  mode: "connecting",          // connecting | live | demo
+  url: CONFIG.dataUrl,
+  refresh: CONFIG.refreshSeconds,
+  receiver: { ...CONFIG.receiver },
+  sort: "range",
+  selected: null,
+  aircraft: [],
+  prevHexes: new Set(),
+  msgsTotal: 0,
+  msgsPrev: null,
+  msgsRate: null,
+  lastUpdate: null,
+  demoForced: false
+};
+
+/* =================================================================
+   GEO HELPERS
+   ================================================================= */
+const R_NM = 3440.065;                 // Earth radius in nautical miles
+const toRad = d => d * Math.PI / 180;
+const toDeg = r => r * 180 / Math.PI;
+
+function rangeNm(lat1, lon1, lat2, lon2){
+  const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function bearingDeg(lat1, lon1, lat2, lon2){
+  const y = Math.sin(toRad(lon2-lon1))*Math.cos(toRad(lat2));
+  const x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) -
+            Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/* =================================================================
+   FORMATTERS
+   ================================================================= */
+function flLabel(alt){
+  // One value only: feet below the (UK-ish) transition altitude,
+  // a flight level at or above it. Same datum, stated once.
+  if (alt === "ground" || alt === "GND") return { val:"GND" };
+  if (alt == null || isNaN(alt))         return { val:"—" };
+  if (alt < 6000) return { val: Math.round(alt) + " ft" };
+  return { val: "FL" + String(Math.round(alt/100)).padStart(3,"0") };
+}
+function vsGlyph(rate, derived){
+  if (rate == null || isNaN(rate)) return { g:"—", cls:"lv", txt:"no data" };
+  const p = derived ? "~" : "";
+  if (rate >  250) return { g:"▲", cls:"up", txt:p+"+"+Math.round(rate) };
+  if (rate < -250) return { g:"▼", cls:"dn", txt:p+String(Math.round(rate)) };
+  if (Math.round(rate) === 0) return { g:"●", cls:"lv", txt:"level" };
+  return { g:"●", cls:"lv", txt:p+(rate>0?"+":"")+Math.round(rate) };
+}
+const pad3 = n => String(Math.round(n)).padStart(3,"0");
+
+/* =================================================================
+   MILITARY HEURISTIC
+   ================================================================= */
+function isMilitary(hex, callsign){
+  const h = (hex||"").toLowerCase();
+  if (CONFIG.milHexPrefix.some(p => h.startsWith(p))) return true;
+  const c = (callsign||"").toUpperCase().trim();
+  if (CONFIG.milCallPrefix.some(p => c.startsWith(p))) return true;
+  return false;
+}
+
+/* =================================================================
+   NORMALISE a raw aircraft.json entry into our model
+   ================================================================= */
+function normalise(raw){
+  const hex = (raw.hex||"").replace("~","").toLowerCase();
+  const callsign = (raw.flight||"").trim();
+  // Field names vary by decoder generation:
+  //   readsb / dump1090-fa : alt_baro, alt_geom, baro_rate, geom_rate, gs
+  //   dump1090-mutability  : altitude, vert_rate, speed
+  const alt = (raw.alt_baro != null) ? raw.alt_baro
+            : (raw.alt_geom != null) ? raw.alt_geom
+            : (raw.altitude != null) ? raw.altitude
+            : null;
+  const rate = (raw.baro_rate != null) ? raw.baro_rate
+             : (raw.geom_rate != null) ? raw.geom_rate
+             : (raw.vert_rate != null) ? raw.vert_rate
+             : null;
+  const gs = (raw.gs != null) ? raw.gs
+           : (raw.speed != null) ? raw.speed
+           : null;
+  const track = (raw.track != null) ? raw.track
+            : (raw.true_heading != null ? raw.true_heading
+            : (raw.mag_heading != null ? raw.mag_heading : null));
+
+  const ac = {
+    hex,
+    callsign: callsign || hex.toUpperCase(),
+    type: raw.t || raw.type || "",
+    reg:  raw.r || raw.registration || "",
+    category: raw.category || "",
+    alt,
+    rate,
+    gs,
+    track,
+    squawk: raw.squawk || "",
+    lat: (raw.lat != null) ? raw.lat : null,
+    lon: (raw.lon != null) ? raw.lon : null,
+    seenPos: raw.seen_pos,
+    range: null,
+    bearing: null
+  };
+  ac.mil = isMilitary(ac.hex, callsign);
+  if (ac.lat != null && ac.lon != null){
+    ac.range   = rangeNm(state.receiver.lat, state.receiver.lon, ac.lat, ac.lon);
+    ac.bearing = bearingDeg(state.receiver.lat, state.receiver.lon, ac.lat, ac.lon);
+  }
+  return ac;
+}
+
+/* =================================================================
+   DERIVED VERTICAL SPEED — some aircraft (and some decoder builds)
+   never send a rate. Track successive altitudes and compute one,
+   with a deadband to absorb the 25 ft altitude quantisation.
+   ================================================================= */
+const altHistory = new Map();   // hex -> { alt, t }
+
+function deriveRates(list){
+  const tNow = Date.now();
+  const present = new Set();
+  list.forEach(ac => {
+    present.add(ac.hex);
+    if (typeof ac.alt !== "number"){ altHistory.delete(ac.hex); return; }
+    const prev = altHistory.get(ac.hex);
+    if (!prev){ altHistory.set(ac.hex, { alt: ac.alt, t: tNow }); return; }
+    const dt = tNow - prev.t;
+    if (dt >= 5000){
+      const fpm = (ac.alt - prev.alt) / (dt / 60000);
+      const derived = Math.abs(fpm) < 300 ? 0 : Math.round(fpm);
+      if (ac.rate == null){
+        ac.rate = derived; ac.rateDerived = true;
+      } else if (Math.abs(ac.rate) <= 100 && derived !== 0){
+        // Feed claims level but the altitude trend disagrees.
+        // Some decoder builds emit vert_rate:0 when no rate was
+        // decoded, so the observed trend takes precedence.
+        ac.rate = derived; ac.rateDerived = true;
+      }
+    }
+    if (dt >= 10000) altHistory.set(ac.hex, { alt: ac.alt, t: tNow });
+  });
+  for (const k of altHistory.keys()) if (!present.has(k)) altHistory.delete(k);
+}
+
+/* =================================================================
+   FETCH the live feed (configured URL first, then probe list)
+   ================================================================= */
+async function tryFetch(url){
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 4000);
+  try{
+    const sep = url.includes("?") ? "&" : "?";
+    const res = await fetch(url + sep + "_=" + Date.now(), { signal: ctrl.signal, cache:"no-store" });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json || !Array.isArray(json.aircraft)) return null;
+    return json;
+  }catch(e){
+    clearTimeout(t);
+    return null;
+  }
+}
+
+async function fetchLive(){
+  const order = [state.url, ...CONFIG.probe.filter(u => u !== state.url)];
+  for (const url of order){
+    const json = await tryFetch(url);
+    if (json){
+      if (url !== state.url){ state.url = url; const i = document.getElementById("urlInput"); if (i) i.value = url; }
+      return json;
+    }
+  }
+  return null;
+}
+
+/* =================================================================
+   DEMO TRAFFIC  — plausible North-East England movements, dead-
+   reckoned each tick so the map actually moves. Clearly badged.
+   ================================================================= */
+const demoSeed = [
+  { hex:"4070e3", callsign:"EXS18T", type:"B738", reg:"G-JZHW", lat:54.62, lon:-1.10, alt:8200, gs:288, track:152, rate:-1600, squawk:"6014" },
+  { hex:"406a91", callsign:"EZY43DR", type:"A20N", reg:"G-UZHP", lat:55.41, lon:-1.78, alt:36000, gs:441, track:188, rate:0, squawk:"2317" },
+  { hex:"4ca8f2", callsign:"RYR4TK", type:"B738", reg:"EI-DWY", lat:53.92, lon:-0.62, alt:37000, gs:455, track:341, rate:0, squawk:"1452" },
+  { hex:"40751b", callsign:"LOG62P", type:"AT76", reg:"G-LMRC", lat:55.18, lon:-1.51, alt:11000, gs:236, track:14,  rate:1100, squawk:"7011" },
+  { hex:"3c66ad", callsign:"DLH9LK", type:"A21N", reg:"D-AIEA", lat:54.30, lon:0.42,  alt:38000, gs:472, track:118, rate:0, squawk:"5163" },
+  { hex:"48415f", callsign:"WZZ2241", type:"A321", reg:"HA-LZN", lat:55.92, lon:-0.95, alt:40000, gs:466, track:160, rate:0, squawk:"3045" },
+  { hex:"4840d2", callsign:"KLM52E", type:"E195", reg:"PH-NXA", lat:54.05, lon:-1.95, alt:24000, gs:402, track:96,  rate:1700, squawk:"4521" },
+  { hex:"40621c", callsign:"EZE401", type:"E170", reg:"G-CIXV", lat:54.78, lon:-2.40, alt:6000,  gs:248, track:58,  rate:1500, squawk:"6203" },
+  { hex:"40098a", callsign:"BAW88V", type:"A320", reg:"G-EUYR", lat:54.92, lon:-3.10, alt:32000, gs:430, track:88,  rate:-900, squawk:"2710" },
+  { hex:"40680f", callsign:"TOM55W", type:"B38M", reg:"G-TUMC", lat:53.70, lon:-1.40, alt:39000, gs:460, track:8,   rate:0, squawk:"1671" },
+  { hex:"4bb1c9", callsign:"THY7GH", type:"B77W", reg:"TC-JJU", lat:55.60, lon:0.90,  alt:41000, gs:498, track:122, rate:0, squawk:"3322" },
+  { hex:"43c1d8", callsign:"RRR7142", type:"A400", reg:"ZM412",  lat:55.05, lon:-1.05, alt:4500,  gs:212, track:200, rate:-700, squawk:"0271", mil:true },
+  { hex:"ae1f4c", callsign:"RCH285",  type:"C17",  reg:"08-8204",lat:54.42, lon:-2.85, alt:28000, gs:448, track:74,  rate:0, squawk:"6155", mil:true },
+  { hex:"4070a1", callsign:"EXS92K",  type:"B738", reg:"G-JZBF", lat:54.85, lon:-0.20, alt:15000, gs:332, track:268, rate:1800, squawk:"6042" }
+];
+let demoFleet = null;
+
+function demoInit(){
+  demoFleet = demoSeed.map(s => ({ ...s }));
+  state.msgsTotal = 184320;
+}
+function demoTick(dt){
+  if (!demoFleet) demoInit();
+  for (const a of demoFleet){
+    const distNm = (a.gs||0) * (dt/3600);
+    const dLat = (distNm/60) * Math.cos(toRad(a.track||0));
+    const dLon = (distNm/60) * Math.sin(toRad(a.track||0)) / Math.cos(toRad(a.lat));
+    a.lat += dLat; a.lon += dLon;
+    if (a.alt !== "ground"){
+      a.alt = Math.max(1000, Math.min(41000, a.alt + (a.rate||0)*(dt/60)));
+      if (a.alt >= 41000 && a.rate > 0) a.rate = 0;
+      if (a.alt <= 2500 && a.rate < 0)  a.rate = 0;
+    }
+    // gently steer wanderers back toward the coverage area
+    const rng = rangeNm(state.receiver.lat, state.receiver.lon, a.lat, a.lon);
+    if (rng > 215){
+      a.track = bearingDeg(a.lat, a.lon, state.receiver.lat, state.receiver.lon);
+    }
+  }
+  // simulate message throughput
+  const rate = 360 + Math.round(Math.sin(Date.now()/9000)*120) + Math.round(Math.random()*60);
+  state.msgsTotal += Math.round(rate * dt);
+  // emit in aircraft.json shape so the SAME parser handles demo + live
+  return demoFleet.map(a => normalise({
+    hex: a.hex, flight: a.callsign, t: a.type, r: a.reg,
+    alt_baro: a.alt, baro_rate: a.rate, gs: a.gs, track: a.track,
+    squawk: a.squawk, lat: a.lat, lon: a.lon, category: a.category || ""
+  }));
+}
+
+/* =================================================================
+   MAP
+   ================================================================= */
+let map, markers = {}, mapReady = false;
+
+function initMap(){
+  if (typeof L === "undefined"){ document.getElementById("map").innerHTML =
+    '<div class="empty" style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center">'+
+    '<div class="big">Map unavailable</div>offline — the strip board still works</div>'; return; }
+
+  map = L.map("map", { zoomControl:true, attributionControl:true })
+         .setView([state.receiver.lat, state.receiver.lon], 7);
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    attribution:'&copy; OpenStreetMap &copy; CARTO',
+    subdomains:"abcd", maxZoom:18
+  }).addTo(map);
+
+  drawReceiver();
+  mapReady = true;
+}
+
+let ringLayer = L.layerGroup ? null : null;
+function drawReceiver(){
+  if (ringLayer) ringLayer.remove();
+  ringLayer = L.layerGroup().addTo(map);
+  const c = [state.receiver.lat, state.receiver.lon];
+  CONFIG.rings.forEach(nm => {
+    L.circle(c, { radius:nm*1852, color:"#F4A23B", weight:1, opacity:0.45,
+                  fill:false, dashArray:"3 6" }).addTo(ringLayer);
+  });
+  L.circleMarker(c, { radius:5, color:"#fff", weight:2, fillColor:"#F4A23B", fillOpacity:1 })
+   .bindTooltip(state.receiver.name||"Receiver", { permanent:false }).addTo(ringLayer);
+}
+
+function planeIcon(ac, selected){
+  const cls = "ac" + (ac.mil ? " mil" : "") + (selected ? " sel" : "");
+  const fl = flLabel(ac.alt).val;
+  const html =
+    '<div class="'+cls+'" style="position:relative;width:26px;height:26px">'+
+      '<span class="ac-rot" style="transform:rotate('+(ac.track||0)+'deg)">'+
+        '<svg class="ac-glyph" width="26" height="26" viewBox="0 0 24 24">'+
+          '<path d="M12 2 L19 21 L12 16.5 L5 21 Z"/></svg>'+
+      '</span>'+
+      '<span class="ac-tag">'+ac.callsign+' '+fl+'</span>'+
+    '</div>';
+  return L.divIcon({ className:"", html, iconSize:[26,26], iconAnchor:[13,13] });
+}
+
+function updateMarkers(list){
+  if (!mapReady) return;
+  const present = new Set();
+  list.forEach(ac => {
+    if (ac.lat == null || ac.lon == null) return;
+    present.add(ac.hex);
+    const sel = ac.hex === state.selected;
+    if (markers[ac.hex]){
+      markers[ac.hex].setLatLng([ac.lat, ac.lon]);
+      markers[ac.hex].setIcon(planeIcon(ac, sel));
+    } else {
+      const m = L.marker([ac.lat, ac.lon], { icon:planeIcon(ac, sel) }).addTo(map);
+      m.on("click", () => selectAircraft(ac.hex, true));
+      markers[ac.hex] = m;
+    }
+    markers[ac.hex].bindPopup(popupHtml(ac));
+  });
+  Object.keys(markers).forEach(hex => {
+    if (!present.has(hex)){ map.removeLayer(markers[hex]); delete markers[hex]; }
+  });
+}
+
+function popupHtml(ac){
+  const fl = flLabel(ac.alt);
+  return '<b>'+ac.callsign+'</b>'+(ac.mil?' · MIL':'')+'<br>'+
+    (ac.type||'unknown type')+(ac.reg?' · '+ac.reg:'')+'<br>'+
+    fl.val+' &nbsp; '+(ac.gs!=null?Math.round(ac.gs)+' kt':'—')+' &nbsp; '+(ac.track!=null?pad3(ac.track)+'°':'—')+'<br>'+
+    (ac.range!=null?ac.range.toFixed(1)+' nm / '+pad3(ac.bearing)+'°':'position pending')+'<br>'+
+    'Sqk '+(ac.squawk||'----')+' · '+ac.hex.toUpperCase();
+}
+
+/* =================================================================
+   STRIP BOARD RENDER
+   ================================================================= */
+function sortList(list){
+  const l = [...list];
+  if (state.sort === "callsign") l.sort((a,b)=> a.callsign.localeCompare(b.callsign));
+  else if (state.sort === "alt") l.sort((a,b)=> (b.alt==="ground"?-1:b.alt||0) - (a.alt==="ground"?-1:a.alt||0));
+  else { // range: positioned first (closest), then unpositioned
+    l.sort((a,b)=>{
+      if (a.range==null && b.range==null) return a.callsign.localeCompare(b.callsign);
+      if (a.range==null) return 1;
+      if (b.range==null) return -1;
+      return a.range - b.range;
+    });
+  }
+  return l;
+}
+
+function renderStrips(list){
+  const box = document.getElementById("striplist");
+  const sorted = sortList(list);
+  document.getElementById("boardCount").textContent = list.length ? "· "+list.length+" contact"+(list.length===1?"":"s") : "";
+
+  if (!sorted.length){
+    box.innerHTML = '<div class="empty"><div class="big">No aircraft in range</div>'+
+      (state.mode==="live"
+        ? 'The feed is connected — the sky is just quiet right now.'
+        : 'Waiting for data…')+'</div>';
+    return;
+  }
+
+  const html = sorted.map(ac => {
+    const fl  = flLabel(ac.alt);
+    const vs  = vsGlyph(ac.rate, ac.rateDerived);
+    const overhead = (ac.range != null && ac.range <= 5);
+    const cls = "strip" + (ac.mil ? " mil" : "") +
+                (ac.hex === state.selected ? " is-selected" : "") +
+                (!state.prevHexes.has(ac.hex) ? " is-new" : "");
+    return (
+      '<div class="'+cls+'" role="button" tabindex="0" data-hex="'+ac.hex+'">'+
+        '<div class="tab"></div>'+
+        '<div class="cell">'+
+          '<div class="lab">Callsign</div>'+
+          '<div class="big">'+ac.callsign+'</div>'+
+          '<div class="sub">'+(ac.hex.toUpperCase())+(ac.reg?' · '+ac.reg:'')+'</div>'+
+          (ac.mil?'<span class="milbadge">MIL</span>':'')+
+        '</div>'+
+        '<div class="cell">'+
+          '<div class="lab">Type</div>'+
+          '<div class="val">'+(ac.type||'—')+'</div>'+
+          '<div class="sub">'+(ac.category||'')+'</div>'+
+        '</div>'+
+        '<div class="cell c-sq">'+
+          '<div class="lab">Squawk</div>'+
+          '<div class="val">'+(ac.squawk||'----')+'</div>'+
+        '</div>'+
+        '<div class="cell">'+
+          '<div class="lab">Level</div>'+
+          '<div class="val">'+fl.val+'</div>'+
+        '</div>'+
+        '<div class="cell c-vs">'+
+          '<div class="lab">V/S</div>'+
+          '<div class="val vs '+vs.cls+'">'+vs.g+'</div>'+
+          '<div class="sub">'+(vs.txt||'')+'</div>'+
+        '</div>'+
+        '<div class="cell c-gs">'+
+          '<div class="lab">G/S</div>'+
+          '<div class="val">'+(ac.gs!=null?Math.round(ac.gs):'—')+'</div>'+
+          '<div class="sub">kt</div>'+
+        '</div>'+
+        '<div class="cell c-trk">'+
+          '<div class="lab">Trk</div>'+
+          '<div class="val">'+(ac.track!=null?pad3(ac.track)+'°':'—')+'</div>'+
+        '</div>'+
+        '<div class="cell c-rng">'+
+          '<div class="lab">Range</div>'+
+          '<div class="val">'+(ac.range!=null?ac.range.toFixed(1)+' nm':'—')+'</div>'+
+          '<div class="sub">'+(ac.bearing!=null?'bearing '+pad3(ac.bearing)+'°':'no position')+'</div>'+
+        '</div>'+
+        (overhead?'<span class="ovhd">OVERHEAD</span>':'')+
+      '</div>'
+    );
+  }).join("");
+  box.innerHTML = html;
+
+  box.querySelectorAll(".strip").forEach(el => {
+    const hex = el.getAttribute("data-hex");
+    el.addEventListener("click", () => selectAircraft(hex, false));
+    el.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " "){ e.preventDefault(); selectAircraft(hex, false); }
+    });
+  });
+}
+
+/* =================================================================
+   SELECTION — links a strip and its marker together
+   ================================================================= */
+function selectAircraft(hex, fromMap){
+  state.selected = (state.selected === hex) ? null : hex;
+  renderStrips(state.aircraft);
+  if (mapReady && state.selected){
+    const ac = state.aircraft.find(a => a.hex === state.selected);
+    if (ac && ac.lat != null){
+      if (!fromMap) map.panTo([ac.lat, ac.lon], { animate:true });
+      if (markers[hex]) markers[hex].openPopup();
+    }
+    const el = document.querySelector('.strip[data-hex="'+hex+'"]');
+    if (el && fromMap) el.scrollIntoView({ behavior:"smooth", block:"nearest" });
+  }
+}
+
+/* =================================================================
+   STATUS BAR
+   ================================================================= */
+function setMode(mode){
+  state.mode = mode;
+  const conn = document.getElementById("conn");
+  const txt = document.getElementById("connText");
+  conn.className = "conn " + (mode==="live"?"live":"demo");
+  if (mode==="live"){ txt.textContent = "Live"; }
+  else if (mode==="demo"){ txt.textContent = state.demoForced ? "Demo" : "Demo · no feed"; }
+  else { txt.textContent = "Connecting…"; }
+}
+
+function updateStatus(list){
+  const positioned = list.filter(a => a.lat != null);
+  const mil = list.filter(a => a.mil).length;
+  const maxR = positioned.reduce((m,a)=> Math.max(m, a.range||0), 0);
+  document.getElementById("sTrack").textContent = list.length;
+  document.getElementById("sPos").textContent = positioned.length;
+  document.getElementById("sMil").textContent = mil;
+  document.getElementById("sRange").textContent = maxR ? maxR.toFixed(0) : "—";
+  document.getElementById("sMsgs").textContent = state.msgsRate != null ? state.msgsRate : "—";
+}
+
+const PAGE_VERSION = "v8";
+
+function updateDiag(list){
+  const el = document.getElementById("feedDiag");
+  if (!el) return;
+  if (state.mode !== "live"){
+    el.textContent = "Feed check (page "+PAGE_VERSION+"): demo data, no live feed connected.";
+    return;
+  }
+  const raw = state.rawList || [];
+  const c = f => raw.filter(a => a && a[f] != null).length;
+  const derived = list.filter(a => a.rateDerived).length;
+  const v = x => (x == null ? "–" : x);
+  const samples = raw.slice(0,3).map(a =>
+    (a.hex||"?")+" br="+v(a.baro_rate)+" gr="+v(a.geom_rate)+
+    " vr="+v(a.vert_rate)+" alt="+v(a.alt_baro != null ? a.alt_baro : a.altitude)
+  ).join("  |  ");
+  el.textContent = "Feed check (page "+PAGE_VERSION+") · "+state.url+" · "+raw.length+
+    " a/c · baro_rate "+c("baro_rate")+" · geom_rate "+c("geom_rate")+
+    " · vert_rate "+c("vert_rate")+" · derived "+derived+
+    (state.bridgeSource ? " · upstream: "+state.bridgeSource : "")+
+    " · samples: "+(samples||"—");
+}
+
+function tickAge(){
+  const el = document.getElementById("sAge");
+  if (!state.lastUpdate){ el.textContent = "—"; return; }
+  const s = Math.round((Date.now() - state.lastUpdate)/1000);
+  el.textContent = s <= 1 ? "now" : (s < 60 ? s + "s ago" : "60s+ ago");
+}
+
+/* =================================================================
+   MAIN LOOP
+   ================================================================= */
+let loopTimer = null, lastTickAt = Date.now();
+
+async function cycle(){
+  const now = Date.now();
+  const dt = Math.max(0.2, (now - lastTickAt)/1000);
+  lastTickAt = now;
+
+  let list = null;
+
+  if (!state.demoForced){
+    const json = await fetchLive();
+    if (json){
+      state.rawList = json.aircraft;
+      state.bridgeSource = json.bridge_source || null;
+      list = json.aircraft.map(normalise);
+      // message-rate from the feed's running total
+      if (typeof json.messages === "number"){
+        if (state.msgsPrev != null){
+          const dm = json.messages - state.msgsPrev;
+          state.msgsRate = dm >= 0 ? Math.round(dm/dt) : null;
+        }
+        state.msgsPrev = json.messages;
+      }
+      if (state.mode !== "live") setMode("live");
+    }
+  }
+
+  if (list == null){
+    // no live feed (or demo forced) -> demo traffic
+    list = demoTick(dt);
+    if (state.msgsPrev != null){ const dm = state.msgsTotal - state.msgsPrev; state.msgsRate = Math.round(dm/dt); }
+    state.msgsPrev = state.msgsTotal;
+    if (state.mode !== "demo") setMode("demo");
+  }
+
+  // keep only airborne-or-recent contacts; drop stale positions handled by feed
+  state.aircraft = list;
+  state.lastUpdate = Date.now();
+
+  deriveRates(list);
+  renderStrips(list);
+  updateMarkers(list);
+  updateStatus(list);
+  updateDiag(list);
+
+  state.prevHexes = new Set(list.map(a => a.hex));
+
+  loopTimer = setTimeout(cycle, state.refresh * 1000);
+}
+
+function restartLoop(){
+  if (loopTimer) clearTimeout(loopTimer);
+  lastTickAt = Date.now();
+  cycle();
+}
+
+/* =================================================================
+   CLOCK (Zulu + local), independent 1 Hz
+   ================================================================= */
+function tickClock(){
+  const d = new Date();
+  const z = d.getUTCHours().toString().padStart(2,"0")+":"+
+            d.getUTCMinutes().toString().padStart(2,"0")+":"+
+            d.getUTCSeconds().toString().padStart(2,"0")+"Z";
+  document.getElementById("clockZ").textContent = z;
+  document.getElementById("clockLoc").textContent = "local " +
+    d.getHours().toString().padStart(2,"0")+":"+d.getMinutes().toString().padStart(2,"0");
+  tickAge();
+}
+
+/* =================================================================
+   UI WIRING
+   ================================================================= */
+function applyBranding(){
+  document.getElementById("siteName").textContent = CONFIG.siteName;
+  document.getElementById("siteTag").textContent  = CONFIG.tagline;
+  document.title = CONFIG.siteName + " — Live ADS-B";
+}
+function applyAboutMeta(){
+  document.getElementById("aboutMeta").innerHTML =
+    "Receiver · " + state.receiver.lat.toFixed(3) + ", " + state.receiver.lon.toFixed(3) +
+    " &nbsp;|&nbsp; Feed: " + state.url + " &nbsp;|&nbsp; Contributor to FlightRadar24";
+}
+
+document.querySelectorAll(".sortgroup button").forEach(b => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".sortgroup button").forEach(x => x.setAttribute("aria-pressed","false"));
+    b.setAttribute("aria-pressed","true");
+    state.sort = b.getAttribute("data-sort");
+    renderStrips(state.aircraft);
+  });
+});
+
+document.getElementById("refreshBtn").addEventListener("click", restartLoop);
+
+document.getElementById("applyBtn").addEventListener("click", () => {
+  const u = document.getElementById("urlInput").value.trim();
+  const la = parseFloat(document.getElementById("latInput").value);
+  const lo = parseFloat(document.getElementById("lonInput").value);
+  const rf = parseInt(document.getElementById("refSel").value, 10);
+  if (u) state.url = u;
+  if (!isNaN(la) && !isNaN(lo)){
+    state.receiver = { lat:la, lon:lo, name:"Receiver" };
+    if (mapReady){ map.setView([la, lo], map.getZoom()); drawReceiver(); }
+  }
+  if (rf) state.refresh = rf;
+  state.demoForced = false;
+  state.msgsPrev = null;
+  applyAboutMeta();
+  restartLoop();
+});
+
+document.getElementById("demoBtn").addEventListener("click", () => {
+  state.demoForced = true;
+  demoInit();
+  state.msgsPrev = null;
+  restartLoop();
+});
+
+/* =================================================================
+   BOOT
+   ================================================================= */
+(function boot(){
+  applyBranding();
+  // prime the settings inputs
+  document.getElementById("urlInput").value = state.url;
+  document.getElementById("latInput").value = state.receiver.lat;
+  document.getElementById("lonInput").value = state.receiver.lon;
+  document.getElementById("refSel").value = String(state.refresh);
+  applyAboutMeta();
+
+  setMode("connecting");
+  initMap();
+  tickClock();
+  setInterval(tickClock, 1000);
+  restartLoop();
+})();
+</script>
+</body>
+</html>
