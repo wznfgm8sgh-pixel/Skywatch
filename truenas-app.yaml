@@ -1,0 +1,61 @@
+# Skywatch — TrueNAS custom app (Docker Compose)
+#
+# Install via:  Apps → Discover → three-dot menu → Install via YAML
+#
+# Two deployment methods are shown below.  Only one service block should
+# be active at a time.
+#
+# ─────────────────────────────────────────────────────────────────────
+# METHOD A — Raw-fetch (no image build required, active default)
+#
+# On each container start the bootstrap command downloads bridge.py and
+# skywatch.html from the public GitHub repo and then runs the bridge.
+# To pick up a code change: edit on GitHub → Restart the app.
+# ─────────────────────────────────────────────────────────────────────
+name: skywatch
+services:
+  skywatch:
+    image: python:3.12-slim
+    restart: unless-stopped
+    working_dir: /app
+    command:
+      - python3
+      - -c
+      - |
+        import urllib.request, runpy, os
+        os.makedirs("/app", exist_ok=True)
+        base = "https://raw.githubusercontent.com/wznfgm8sgh-pixel/Skywatch/main/"
+        for f in ("bridge.py", "skywatch.html"):
+            urllib.request.urlretrieve(base + f, "/app/" + f)
+        runpy.run_path("/app/bridge.py", run_name="__main__")
+    ports:
+      - "8088:8088"
+    environment:
+      ADSB_HOST: "192.168.1.54"
+      ADSB_SBS_PORT: "30003"
+      RECEIVER_LAT: "54.999"
+      RECEIVER_LON: "-1.438"
+      RECEIVER_NAME: "South Shields"
+      SITE_NAME: "Northeast Skywatch"
+      SITE_TAGLINE: "Live ADS-B over the Tyne"
+
+# ─────────────────────────────────────────────────────────────────────
+# METHOD B — Pre-built GHCR image (requires GitHub Actions to have run
+# at least once and the package to be set Public in GitHub settings).
+# Swap the service block above for this one when the image is available.
+# ─────────────────────────────────────────────────────────────────────
+# name: skywatch
+# services:
+#   skywatch:
+#     image: ghcr.io/wznfgm8sgh-pixel/skywatch:latest
+#     restart: unless-stopped
+#     ports:
+#       - "8088:8088"
+#     environment:
+#       ADSB_HOST: "192.168.1.54"
+#       ADSB_SBS_PORT: "30003"
+#       RECEIVER_LAT: "54.999"
+#       RECEIVER_LON: "-1.438"
+#       RECEIVER_NAME: "South Shields"
+#       SITE_NAME: "Northeast Skywatch"
+#       SITE_TAGLINE: "Live ADS-B over the Tyne"
