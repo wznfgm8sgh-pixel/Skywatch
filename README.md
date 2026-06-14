@@ -8,18 +8,30 @@ never modified; Skywatch reads from it over the local network.
 
 ---
 
-## Quick start on TrueNAS (raw-fetch method)
+## Quick start on TrueNAS
+
+GitHub Actions builds the image on every push to `main` and publishes it to
+GHCR. TrueNAS pulls the pre-built image — nothing is downloaded at runtime.
+
+### One-time setup (after first merge to `main`)
+
+1. Wait for the Actions build to complete (check the **Actions** tab).
+2. Go to **github.com/wznfgm8sgh-pixel/Skywatch/packages** and set the
+   `skywatch` package to **Public**.
+
+### Installing the app
 
 1. **Apps → Discover → three-dot menu → Install via YAML**
-2. Paste the contents of [`truenas-app.yaml`](truenas-app.yaml) (Method A block).
-3. Edit the `environment` section with your Pi's IP, receiver position, and
+2. Paste the contents of [`truenas-app.yaml`](truenas-app.yaml) (Method B block
+   is active by default).
+3. Fill in the `environment` section with your Pi's IP, receiver position, and
    site name.
 4. Click **Save**. Wait for the container to reach **Running**.
 5. Open `http://<truenas-ip>:8088/` — the footer's "Feed check" line shows
    which data source was locked onto.
 
-**To pick up code changes:** edit on GitHub → **Restart** the TrueNAS app.
-The container re-downloads `bridge.py` and `skywatch.html` on each start.
+**To pick up code changes:** push to `main` → wait for the Actions build →
+**Restart** the TrueNAS app.
 
 ### If the portal shows DEMO instead of LIVE
 
@@ -31,15 +43,6 @@ The bridge couldn't reach an `aircraft.json` on the Pi. Try in order:
 3. If you rely on fr24feed's embedded decoder, enable BaseStation output:
    add `bs="yes"` to `/etc/fr24feed.ini` on the Pi and restart fr24feed.
    The bridge will then fall back to the TCP 30003 stream.
-
----
-
-## Alternative: pre-built GHCR image
-
-GitHub Actions (`.github/workflows/build.yml`) builds the image and pushes it
-to GHCR on every push to `main`. Once the first build has run, go to the
-package settings on GitHub and set it **Public**, then switch to Method B in
-`truenas-app.yaml`.
 
 ---
 
