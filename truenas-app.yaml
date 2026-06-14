@@ -7,29 +7,22 @@
 # be active at a time.
 #
 # ─────────────────────────────────────────────────────────────────────
-# METHOD A — Raw-fetch (no image build required, active default)
+# METHOD B — Pre-built GHCR image (active default)
 #
-# On each container start the bootstrap command downloads bridge.py and
-# skywatch.html from the public GitHub repo and then runs the bridge.
-# To pick up a code change: edit on GitHub → Restart the app.
-# Note: requires the GitHub repo to remain public.
+# GitHub Actions builds the image on every push to main and publishes
+# it to GHCR.  TrueNAS pulls the pre-built image — no files are
+# downloaded at runtime.  Works with a private repo.
+#
+# One-time setup after first merge to main:
+#   1. Go to github.com/<you>/Skywatch/packages
+#   2. Set the skywatch package to Public
+#   3. Paste this YAML into TrueNAS and start the app.
 # ─────────────────────────────────────────────────────────────────────
 name: skywatch
 services:
   skywatch:
-    image: python:3.12-slim
+    image: ghcr.io/wznfgm8sgh-pixel/skywatch:latest
     restart: unless-stopped
-    working_dir: /app
-    command:
-      - python3
-      - -c
-      - |
-        import urllib.request, runpy, os
-        os.makedirs("/app", exist_ok=True)
-        base = "https://raw.githubusercontent.com/wznfgm8sgh-pixel/Skywatch/main/"
-        for f in ("bridge.py", "skywatch.html"):
-            urllib.request.urlretrieve(base + f, "/app/" + f)
-        runpy.run_path("/app/bridge.py", run_name="__main__")
     ports:
       - "8088:8088"
     environment:
@@ -42,18 +35,28 @@ services:
       SITE_TAGLINE: "Live ADS-B"      # Sub-heading
 
 # ─────────────────────────────────────────────────────────────────────
-# METHOD B — Pre-built GHCR image (cleaner; works with a private repo)
+# METHOD A — Raw-fetch fallback (requires the repo to remain public)
 #
-# Requires GitHub Actions to have run at least once.  After the first
-# build, go to the repo Packages page and set the package to Public
-# (or configure TrueNAS with a registry credential if you keep it
-# private).  Then swap this block in place of Method A above.
+# On each container start the bootstrap command downloads bridge.py and
+# skywatch.html directly from the public GitHub repo, then runs the
+# bridge.  To pick up a code change: edit on GitHub → Restart the app.
 # ─────────────────────────────────────────────────────────────────────
 # name: skywatch
 # services:
 #   skywatch:
-#     image: ghcr.io/wznfgm8sgh-pixel/skywatch:latest
+#     image: python:3.12-slim
 #     restart: unless-stopped
+#     working_dir: /app
+#     command:
+#       - python3
+#       - -c
+#       - |
+#         import urllib.request, runpy, os
+#         os.makedirs("/app", exist_ok=True)
+#         base = "https://raw.githubusercontent.com/wznfgm8sgh-pixel/Skywatch/main/"
+#         for f in ("bridge.py", "skywatch.html"):
+#             urllib.request.urlretrieve(base + f, "/app/" + f)
+#         runpy.run_path("/app/bridge.py", run_name="__main__")
 #     ports:
 #       - "8088:8088"
 #     environment:
