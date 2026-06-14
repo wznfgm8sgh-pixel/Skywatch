@@ -2,7 +2,8 @@
 #
 # Install via:  Apps → Discover → three-dot menu → Install via YAML
 #
-# Two deployment methods are shown below.  Only one service block should
+# Fill in the environment values for your own setup before pasting.
+# Two deployment methods are shown below; only one service block should
 # be active at a time.
 #
 # ─────────────────────────────────────────────────────────────────────
@@ -11,6 +12,7 @@
 # On each container start the bootstrap command downloads bridge.py and
 # skywatch.html from the public GitHub repo and then runs the bridge.
 # To pick up a code change: edit on GitHub → Restart the app.
+# Note: requires the GitHub repo to remain public.
 # ─────────────────────────────────────────────────────────────────────
 name: skywatch
 services:
@@ -31,18 +33,21 @@ services:
     ports:
       - "8088:8088"
     environment:
-      ADSB_HOST: "192.168.1.54"
+      ADSB_HOST: "192.168.1.x"        # IP of your Pi / decoder host
       ADSB_SBS_PORT: "30003"
-      RECEIVER_LAT: "54.999"
-      RECEIVER_LON: "-1.438"
-      RECEIVER_NAME: "South Shields"
-      SITE_NAME: "Northeast Skywatch"
-      SITE_TAGLINE: "Live ADS-B over the Tyne"
+      RECEIVER_LAT: "0.000"           # Antenna latitude  (decimal degrees)
+      RECEIVER_LON: "0.000"           # Antenna longitude (decimal degrees)
+      RECEIVER_NAME: "My Station"     # Short location label
+      SITE_NAME: "Skywatch"           # Page heading
+      SITE_TAGLINE: "Live ADS-B"      # Sub-heading
 
 # ─────────────────────────────────────────────────────────────────────
-# METHOD B — Pre-built GHCR image (requires GitHub Actions to have run
-# at least once and the package to be set Public in GitHub settings).
-# Swap the service block above for this one when the image is available.
+# METHOD B — Pre-built GHCR image (cleaner; works with a private repo)
+#
+# Requires GitHub Actions to have run at least once.  After the first
+# build, go to the repo Packages page and set the package to Public
+# (or configure TrueNAS with a registry credential if you keep it
+# private).  Then swap this block in place of Method A above.
 # ─────────────────────────────────────────────────────────────────────
 # name: skywatch
 # services:
@@ -52,10 +57,10 @@ services:
 #     ports:
 #       - "8088:8088"
 #     environment:
-#       ADSB_HOST: "192.168.1.54"
+#       ADSB_HOST: "192.168.1.x"
 #       ADSB_SBS_PORT: "30003"
-#       RECEIVER_LAT: "54.999"
-#       RECEIVER_LON: "-1.438"
-#       RECEIVER_NAME: "South Shields"
-#       SITE_NAME: "Northeast Skywatch"
-#       SITE_TAGLINE: "Live ADS-B over the Tyne"
+#       RECEIVER_LAT: "0.000"
+#       RECEIVER_LON: "0.000"
+#       RECEIVER_NAME: "My Station"
+#       SITE_NAME: "Skywatch"
+#       SITE_TAGLINE: "Live ADS-B"
